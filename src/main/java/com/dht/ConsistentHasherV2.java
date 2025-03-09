@@ -1,10 +1,6 @@
 package com.dht;
 
-import com.dht.model.Hash128Bit;
-import com.dht.model.InstanceInfo;
-import com.dht.model.InstanceInfoHashRange;
-import com.dht.model.RangeInstanceInfo;
-import com.dht.model.VirtualNode;
+import com.dht.model.*;
 import com.google.common.hash.HashFunction;
 import com.google.common.hash.Hashing;
 
@@ -12,15 +8,10 @@ import javax.annotation.concurrent.ThreadSafe;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Map.Entry;
-import java.util.NavigableMap;
-import java.util.Objects;
-import java.util.TreeMap;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.*;
+import java.util.Map.*;
+import java.util.concurrent.locks.*;
+import java.util.function.*;
 
 /**
  * Using ReentrantReadWriteLock
@@ -28,9 +19,12 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 @ThreadSafe
 public class ConsistentHasherV2 implements NodeLocator {
+    private final Function<ReadWriteLock, Lock> readLocker;
+
+    private final Function<ReadWriteLock, Lock> writeLocker;
 
     private static final int OPTIMISTIC_RETRY_CNT = 3;
-    private final ReentrantReadWriteLock readWriteLock = new ReentrantReadWriteLock();
+    private final ReadWriteLock readWriteLock = new ReentrantReadWriteLock();
     private static final int VIRTUAL_NODE_CNT = 420;
     private static final HashFunction DEFAULT_HASH_FN = Hashing.murmur3_128();
     private final HashFunction hashFunction;
@@ -38,10 +32,16 @@ public class ConsistentHasherV2 implements NodeLocator {
     private final Map<String, InstanceInfoHashRange<Hash128Bit[]>> instanceIdToVNodeHashes = new HashMap<>();
 
     public ConsistentHasherV2() {
-        this(null);
+        this(ReadWriteLock::readLock, ReadWriteLock::writeLock, null);
     }
 
-    public ConsistentHasherV2(final HashFunction hashFunction) {
+    public ConsistentHasherV2(Function<ReadWriteLock, Lock> readLocker, Function<ReadWriteLock, Lock> writeLocker) {
+        this(readLocker, writeLocker, null);
+    }
+
+    public ConsistentHasherV2(Function<ReadWriteLock, Lock> readLocker, Function<ReadWriteLock, Lock> writeLocker, HashFunction hashFunction) {
+        this.readLocker = readLocker;
+        this.writeLocker = writeLocker;
         this.hashFunction = Objects.isNull(hashFunction) ? DEFAULT_HASH_FN : hashFunction;
     }
 
@@ -49,19 +49,19 @@ public class ConsistentHasherV2 implements NodeLocator {
     public InstanceInfo route(final String key) {
         byte[] bytes = hashFunction.hashString(key, StandardCharsets.UTF_8).asBytes();
         Hash128Bit hash128Bit = getHash128Bit(bytes);
-        readWriteLock.readLock().lock();
-        //readWriteLock.writeLock().lock();
+        var lock = readLocker.apply(readWriteLock);
+        lock.lock();
         try {
             return getInstanceInfo(hash128Bit);
         } finally {
-            readWriteLock.readLock().unlock();
-            //readWriteLock.writeLock().unlock();
+            lock.unlock();
         }
     }
 
     @Override
     public void registerInstance(final String instanceId, final String host, final int port) {
-        readWriteLock.writeLock().lock();
+        var lock = writeLocker.apply(readWriteLock);
+        lock.lock();
         try {
             if (instanceIdToVNodeHashes.containsKey(instanceId)) {
                 return;
@@ -76,15 +76,16 @@ public class ConsistentHasherV2 implements NodeLocator {
                 vNodeHashes[ctr] = hash128Bit;
                 hashRing.put(hash128Bit, virtualNode);
             }
-            instanceIdToVNodeHashes.put(instanceId, new InstanceInfoHashRange(instanceInfo, vNodeHashes));
+            instanceIdToVNodeHashes.put(instanceId, new InstanceInfoHashRange<>(instanceInfo, vNodeHashes));
         } finally {
-            readWriteLock.writeLock().unlock();
+            lock.unlock();
         }
     }
 
     @Override
     public void deregisterInstance(final String instanceId) {
-        readWriteLock.writeLock().lock();
+        var lock = writeLocker.apply(readWriteLock);
+        lock.lock();
         try {
             if (!instanceIdToVNodeHashes.containsKey(instanceId)) {
                 return;
@@ -94,13 +95,14 @@ public class ConsistentHasherV2 implements NodeLocator {
                 hashRing.remove(vNodeHash);
             }
         } finally {
-            readWriteLock.writeLock().unlock();
+            lock.unlock();
         }
     }
 
     @Override
     public List<InstanceInfo> getInstanceList() {
-        readWriteLock.writeLock().lock();
+        var lock = writeLocker.apply(readWriteLock);
+        lock.lock();
         try {
             List<InstanceInfo> instanceInfoList = new ArrayList<>(this.instanceIdToVNodeHashes.size());
             for (Entry<String, InstanceInfoHashRange<Hash128Bit[]>> entry : this.instanceIdToVNodeHashes.entrySet()) {
@@ -109,13 +111,14 @@ public class ConsistentHasherV2 implements NodeLocator {
             }
             return instanceInfoList;
         } finally {
-            readWriteLock.writeLock().unlock();
+            lock.unlock();
         }
     }
 
     @Override
     public List<RangeInstanceInfo> getRingDetails() {
-        readWriteLock.readLock().lock();
+        var lock = readLocker.apply(readWriteLock);
+        lock.lock();
         try {
             List<RangeInstanceInfo> rangeInstanceInfoList = new ArrayList<>(this.instanceIdToVNodeHashes.size());
             for (Entry<String, InstanceInfoHashRange<Hash128Bit[]>> entry : this.instanceIdToVNodeHashes.entrySet()) {
@@ -128,10 +131,9 @@ public class ConsistentHasherV2 implements NodeLocator {
             }
             return rangeInstanceInfoList;
         } finally {
-            readWriteLock.readLock().lock();
+            lock.unlock();
         }
     }
-
 
     private InstanceInfo getInstanceInfo(final Hash128Bit hash128Bit) {
         //temp change for high, low
