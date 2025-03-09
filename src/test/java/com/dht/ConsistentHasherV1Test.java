@@ -8,57 +8,45 @@ import org.junit.jupiter.api.Test;
 
 import java.lang.management.ManagementFactory;
 import java.lang.management.ThreadMXBean;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
+import java.util.concurrent.*;
+import java.util.concurrent.locks.*;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 
 class ConsistentHasherV1Test {
-
     private NodeLocator nodeLocator;
 
     private static final ThreadMXBean tmxBean = ManagementFactory.getThreadMXBean();
 
     @BeforeEach
     void setUp() {
-        //nodeLocator = new ConsistentHasherV1();
-        nodeLocator = new ConsistentHasherV2();
+        // nodeLocator = new ConsistentHasherV2(ReadWriteLock::readLock, ReadWriteLock::writeLock); // 43 seconds
+        // nodeLocator = new ConsistentHasherV2(ReadWriteLock::writeLock, ReadWriteLock::writeLock); // 24 seconds
+        nodeLocator = new ConsistentHasherV3(); // 2 seconds
     }
 
-    @Test
+    @Test()
     void testRouteUsingMultipleThreads() throws InterruptedException {
 
         long start = System.currentTimeMillis();
         int instanceCount = 10;
-        int requestCount = 1_00_000_000;
+        int requestCount = 10_000_000; // decreased to 10 million - I'm impatient
         registerInstances(nodeLocator, instanceCount);
 
-
-        List<Thread> threadList = new ArrayList<>();
-        for (int i = 0; i < 8; i++) {
-            Thread thread = new Thread(() -> {
-                long time = System.currentTimeMillis();
-                for (int ctr = 0; ctr < requestCount; ctr++) {
-                    InstanceInfo instance = nodeLocator.route("key" + ctr);
-                }
-                time = System.currentTimeMillis() - time;
-                System.out.printf("%s called route() %,d times, executionTimeMillis=%d",
-                                  Thread.currentThread().getName(), requestCount, time);
-                System.out.println();
-            }, "ThreadId:"+i);
-
-            threadList.add(thread);
-
-            thread.start();
-
-        }
-
-        for (Thread thread : threadList) {
-            thread.join();
+        try (var threads = Executors.newCachedThreadPool()) {
+            for (int i = 0; i < 8; i++) {
+                threads.submit(() -> {
+                    long time = System.currentTimeMillis();
+                    for (int ctr = 0; ctr < requestCount; ctr++) {
+                        InstanceInfo instance = nodeLocator.route("key" + ctr);
+                    }
+                    time = System.currentTimeMillis() - time;
+                    System.out.printf("%s called route() %,d times, executionTimeMillis=%d",
+                            Thread.currentThread().getName(), requestCount, time);
+                    System.out.println();
+                });
+            }
         }
     }
 

@@ -47,7 +47,8 @@ public class ConsistentHasherV2 implements NodeLocator {
 
     @Override
     public InstanceInfo route(final String key) {
-        byte[] bytes = hashFunction.hashString(key, StandardCharsets.UTF_8).asBytes();
+            byte[] bytes = hashFunction.hashString(key, StandardCharsets.UTF_8)
+                    .asBytes();
         Hash128Bit hash128Bit = getHash128Bit(bytes);
         var lock = readLocker.apply(readWriteLock);
         lock.lock();
@@ -71,7 +72,8 @@ public class ConsistentHasherV2 implements NodeLocator {
             Hash128Bit[] vNodeHashes = new Hash128Bit[VIRTUAL_NODE_CNT];
             for (int ctr = 0; ctr < VIRTUAL_NODE_CNT; ctr++) {
                 VirtualNode virtualNode = new VirtualNode(instanceInfo, ctr);
-                byte[] bytes = hashFunction.hashString(virtualNode.getKey(), StandardCharsets.UTF_8).asBytes();
+                byte[] bytes = hashFunction.hashString(virtualNode.getKey(), StandardCharsets.UTF_8)
+                        .asBytes();
                 Hash128Bit hash128Bit = getHash128Bit(bytes);
                 vNodeHashes[ctr] = hash128Bit;
                 hashRing.put(hash128Bit, virtualNode);
@@ -136,12 +138,14 @@ public class ConsistentHasherV2 implements NodeLocator {
     }
 
     private InstanceInfo getInstanceInfo(final Hash128Bit hash128Bit) {
-        //temp change for high, low
+        // temp change for high, low
         Entry<Hash128Bit, VirtualNode> entry = this.hashRing.ceilingEntry(hash128Bit);
         if (Objects.nonNull(entry)) {
             return entry.getValue().instanceInfo();
         }
-        return this.hashRing.isEmpty() ? null : this.hashRing.firstEntry().getValue().instanceInfo();
+        return this.hashRing.isEmpty() ? null : this.hashRing.firstEntry()
+                .getValue()
+                .instanceInfo();
     }
 
     private Hash128Bit getHash128Bit(final byte[] bytes) {
