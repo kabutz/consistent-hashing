@@ -50,10 +50,12 @@ public class ConsistentHasherV2 implements NodeLocator {
         byte[] bytes = hashFunction.hashString(key, StandardCharsets.UTF_8).asBytes();
         Hash128Bit hash128Bit = getHash128Bit(bytes);
         readWriteLock.readLock().lock();
+        //readWriteLock.writeLock().lock();
         try {
             return getInstanceInfo(hash128Bit);
         } finally {
             readWriteLock.readLock().unlock();
+            //readWriteLock.writeLock().unlock();
         }
     }
 

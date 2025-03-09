@@ -25,8 +25,41 @@ class ConsistentHasherV1Test {
 
     @BeforeEach
     void setUp() {
-        nodeLocator = new ConsistentHasherV1();
-        //nodeLocator = new ConsistentHasherV2();
+        //nodeLocator = new ConsistentHasherV1();
+        nodeLocator = new ConsistentHasherV2();
+    }
+
+    @Test
+    void testRouteUsingMultipleThreads() throws InterruptedException {
+
+        long start = System.currentTimeMillis();
+        int instanceCount = 10;
+        int requestCount = 1_00_000_000;
+        registerInstances(nodeLocator, instanceCount);
+
+
+        List<Thread> threadList = new ArrayList<>();
+        for (int i = 0; i < 8; i++) {
+            Thread thread = new Thread(() -> {
+                long time = System.currentTimeMillis();
+                for (int ctr = 0; ctr < requestCount; ctr++) {
+                    InstanceInfo instance = nodeLocator.route("key" + ctr);
+                }
+                time = System.currentTimeMillis() - time;
+                System.out.printf("%s called route() %,d times, executionTimeMillis=%d",
+                                  Thread.currentThread().getName(), requestCount, time);
+                System.out.println();
+            }, "ThreadId:"+i);
+
+            threadList.add(thread);
+
+            thread.start();
+
+        }
+
+        for (Thread thread : threadList) {
+            thread.join();
+        }
     }
 
     @Test
@@ -108,7 +141,7 @@ class ConsistentHasherV1Test {
 
         // Now add one node and ensure that all nodes get equal traffic.
         registerInstance(nodeLocator, 10);
-        assertEquals(nodeLocator.getInstanceList().size(), 11);
+        assertEquals(11, nodeLocator.getInstanceList().size());
 
         val newRouteCountsMap = generateLoad(nodeLocator, requestCount);
 
@@ -134,7 +167,7 @@ class ConsistentHasherV1Test {
 
         // Now remove one node and ensure that all nodes get equal traffic.
         nodeLocator.deregisterInstance("instance9");
-        assertEquals(nodeLocator.getInstanceList().size(), 9);
+        assertEquals(9, nodeLocator.getInstanceList().size());
 
         val newRouteCountsMap = generateLoad(nodeLocator, requestCount);
 
@@ -156,38 +189,6 @@ class ConsistentHasherV1Test {
             routeCounts.put(instanceId, routeCounts.getOrDefault(instanceId, 0) + 1);
         }
         return routeCounts;
-    }
-    
-    @Test
-    void testRouteUsingMultipleThreads() throws InterruptedException {
-
-        long start = System.currentTimeMillis();
-        int instanceCount = 10;
-        int requestCount = 1_000_000;
-        registerInstances(nodeLocator, instanceCount);
-
-
-        List<Thread> threadList = new ArrayList<>();
-        for (int i = 0; i < 8; i++) {
-            Thread thread = new Thread(() -> {
-                long time = System.currentTimeMillis();
-                for (int ctr = 0; ctr < requestCount; ctr++) {
-                    InstanceInfo instance = nodeLocator.route("key" + ctr);
-                }
-                time = System.currentTimeMillis() - time;
-                System.out.printf("route() called %,d times, elapsed=%d", requestCount,  time);
-                System.out.println();
-            }, "ThreadId:"+i);
-
-            threadList.add(thread);
-
-            thread.start();
-
-        }
-
-        for (Thread thread : threadList) {
-            thread.join();
-        }
     }
 
     static void registerInstances(NodeLocator NodeLocator, int instanceCount) {
