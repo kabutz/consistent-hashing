@@ -2,7 +2,9 @@ package com.dht;
 
 import com.dht.model.InstanceInfo;
 import com.dht.model.RangeInstanceInfo;
+import com.google.common.base.Stopwatch;
 import lombok.val;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -12,6 +14,9 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Random;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -25,8 +30,94 @@ class ConsistentHasherV1Test {
 
     @BeforeEach
     void setUp() {
-        //nodeLocator = new ConsistentHasherV1();
-        nodeLocator = new ConsistentHasherV2();
+        nodeLocator = new ConsistentHasherV1();
+        //nodeLocator = new ConsistentHasherV2();
+    }
+
+
+    @Test
+    void testRouteAndRegisterInstanceWithDifferentThreads() throws InterruptedException {
+
+        int instanceCount = 4;
+        registerInstances(nodeLocator, instanceCount);
+
+        CountDownLatch latch = new CountDownLatch(2);
+        List<Thread> threadList = new ArrayList<>();
+        for (int i = 0; i < 8; i++) {
+            Stopwatch st = Stopwatch.createStarted();
+            Thread thread = new Thread(() -> {
+                long ctr = 0;
+                while (latch.getCount() > 0) {
+                    InstanceInfo instance = nodeLocator.route("key" + ctr);
+                    Assertions.assertNotNull(instance.getInstanceId());
+                    ctr++;
+                }
+                System.out.printf(Thread.currentThread().getName() + ", route() called %,d times, elapsedTime=%d",
+                                  ctr, st.elapsed(TimeUnit.MILLISECONDS));
+                System.out.println("");
+            }, "RouteThreadId:" + i);
+            threadList.add(thread);
+        }
+
+        Random random = new Random();
+
+        String instanceId = "instance";
+        String host = "host";
+        int port = 8080;
+        Thread registerDeRegisterInstanceThread1 = new Thread(() -> {
+            Stopwatch st = Stopwatch.createStarted();
+            for (int i = 0; i < 10_000; i++) {
+                int randomInt = random.nextInt(4);
+                nodeLocator.deregisterInstance(instanceId + randomInt);
+
+                try {
+                    Thread.sleep(5);
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
+                }
+                nodeLocator.registerInstance(instanceId + randomInt, host + randomInt, port);
+
+                if (i % 10000 == 0) {
+                    System.out.println(Thread.currentThread().getName() + ", ctr=" + i);
+                }
+            }
+            latch.countDown();
+            System.out.printf(Thread.currentThread().getName() + ", elapsedTime=%d", st.elapsed(TimeUnit.MILLISECONDS));
+            System.out.println("");
+        }, "registerDeRegisterInstanceThread1");
+        threadList.add(registerDeRegisterInstanceThread1);
+
+
+        Thread registerDeRegisterInstanceThread2 = new Thread(() -> {
+            Stopwatch st = Stopwatch.createStarted();
+            for (int i = 0; i < 10_000; i++) {
+                int randomInt = random.nextInt(10, 100);
+                nodeLocator.registerInstance(instanceId + randomInt, host + randomInt, port);
+                try {
+                    Thread.sleep(2);
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
+                }
+                nodeLocator.deregisterInstance(instanceId + randomInt);
+
+                if (i % 10000 == 0) {
+                    System.out.println(Thread.currentThread().getName() + ", ctr=" + i);
+                }
+            }
+            latch.countDown();
+            System.out.printf(Thread.currentThread().getName() + ", elapsedTime=%d", st.elapsed(TimeUnit.MILLISECONDS));
+            System.out.println("");
+        }, "registerDeRegisterInstanceThread2");
+        threadList.add(registerDeRegisterInstanceThread2);
+
+        for (Thread thread : threadList) {
+            thread.start();
+        }
+
+        for (Thread thread : threadList) {
+            thread.join();
+        }
+        System.out.println("Test completed");
     }
 
     @Test
