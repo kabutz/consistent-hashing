@@ -4,6 +4,7 @@ import com.dht.model.InstanceInfo;
 import com.dht.model.RangeInstanceInfo;
 import com.google.common.base.Stopwatch;
 import lombok.val;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -34,10 +35,18 @@ class ConsistentHasherV1Test {
         //nodeLocator = new ConsistentHasherV2();
     }
 
+    @AfterEach
+    void printStats() {
+        System.out.println("nodeLocator = " + nodeLocator);
+    }
 
     @Test
-    void testRouteAndRegisterInstanceWithDifferentThreads() throws InterruptedException {
+    void testRoute() {
 
+    }
+    @Test
+    void testRouteAndRegisterInstanceWithDifferentThreads() throws InterruptedException {
+        nodeLocator = new ConsistentHasherV1(true);
         int instanceCount = 4;
         registerInstances(nodeLocator, instanceCount);
 
